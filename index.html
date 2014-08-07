@@ -50,12 +50,16 @@ replace <input id="match"> by <input id="replace"> <button id="doReplace">-&gt;<
 <script type="text/javascript" src="/kkjs/modules/kkjs.load.js"></script>
 <script type="text/javascript" src="getAllJS.php"></script>
 <script type="text/javascript">
+String.prototype.indent = function(indent){
+	indent = indent? indent: "\t";
+	return indent + this.replace(/(\r\n?|\n)/g, "$1" + indent);
+}
 
 function parse(){
 	var hasError = false;
 	var reactions = new ReactionPool();
 	console.log(reactions);
-	kkjs.$("reactions").value.split(/\n\r?|\r/g).filter(function(line){
+	kkjs.$("reactions").value.split(/\r\n?|\n/g).filter(function(line){
 		return !!line.trim();
 	}).forEach(function(line){
 		try {
@@ -98,7 +102,7 @@ function process(){
 			switch (kkjs.$("outputLanguage").value){
 				case "latex":
 					out.value = parsing.reactions.chemicals.getAllNames().sort().map(function(name){
-						return "\\begin{split}\n" + parsing.reactions.chemicals.get(name).getDGL("latex") + "\n\\end{split} \\\\";
+						return "\\begin{split}\n" + parsing.reactions.chemicals.get(name).getDGL("latex").indent() + "\n\\end{split} \\\\";
 					}).join("\n%\n");
 					break;
 				case "matlab":
