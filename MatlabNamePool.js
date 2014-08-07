@@ -17,7 +17,7 @@ var MatlabNamePool = (function(){
 			return instance;
 		},
 		getAllMatlabNames: function(){
-			return this.getAllNames.map(function(name){
+			return this.getAllNames().map(function(name){
 				return this.get(name).matlabName;
 			}, this);
 		},

@@ -1,15 +1,14 @@
 var Reaction = (function(){
 	"use strict";
 	
-	return kkjs.oo.Base.extend(function(){
+	return Poolable.extend(function(){
 		this.educts = [];
 		this.products = [];
-		this.chainChildren = [];
 	}).implement({
 		forwardRate: 0,
 		backwardRate: 0,
 		chainParent: null,
-		chainChildren: [],
+		chainedReaction: null,
 		
 		toJSON: function(){
 			return this.toObject();
@@ -24,9 +23,7 @@ var Reaction = (function(){
 				products: this.products.map(function(product){
 					return product.toString();
 				}),
-				chainedReactions: this.chainChildren.map(function(child){
-					return child.toObject();
-				})
+				chainedReaction: this.chainedReaction? this.chainedReaction.toObject(): null
 			};
 		},
 		toString: function(){
@@ -34,13 +31,15 @@ var Reaction = (function(){
 			for (var i = 0; i < (this.chainParent? 4: 5); i += 1){
 				str += this.getColumn(i);
 			}
-			str += this.chainChildren.join("");
+			if (this.chainedReaction){
+				str += this.chainedReaction.toString();
+			}
 			return str;
 		},
 		getColumnCount: function(){
 			var count = this.chainParent? 4: 5;
-			if (this.chainChildren.length){
-				count += this.chainChildren[0].getColumnCount();
+			if (this.chainedReaction){
+				count += this.chainedReaction.getColumnCount();
 			}
 			return count;
 		},
@@ -95,8 +94,8 @@ var Reaction = (function(){
 							}).join(" + ")
 						);
 					default:
-						if (this.chainChildren.length){
-							return this.chainChildren[0].getColumn(columnIndex - 5, width);
+						if (this.chainedReaction){
+							return this.chainedReaction.getColumn(columnIndex - 5, width);
 						}
 						else {
 							return " ".repeat(width);
@@ -116,9 +115,7 @@ var Reaction = (function(){
 				latex += this.getLatexColumn(i);
 			}
 			
-			latex += this.chainChildren.map(function(child){
-				return child.toLatex();
-			}).join("");
+			latex += this.chainedReaction.toLatex();
 			
 			if (withEnvironment){
 				latex += "}";
@@ -130,8 +127,8 @@ var Reaction = (function(){
 		},
 		getLatexColumnCount: function(){
 			var count = this.chainParent? 7: 8;
-			if (this.chainChildren.length){
-				count += this.chainChildren[0].getLatexColumnCount();
+			if (this.chainedReaction){
+				count += this.chainedReaction.getLatexColumnCount();
 			}
 			return count;
 		},
@@ -191,8 +188,8 @@ var Reaction = (function(){
 							}).join(" + ")
 						);
 					default:
-						if (this.chainChildren.length){
-							return this.chainChildren[0].getLatexColumn(columnIndex - 8, width);
+						if (this.chainedReaction){
+							return this.chainedReaction.getLatexColumn(columnIndex - 8, width);
 						}
 						else {
 							return " ".repeat(width);
@@ -202,134 +199,12 @@ var Reaction = (function(){
 		},
 		
 		chain: function(reaction){
+			if (this.chainedReaction){
+				throw new Error("The reaction is already chained");
+			}
 			reaction.chainParent = this;
 			reaction.educts = this.products;
-			this.chainChildren.push(reaction);
+			this.chainedReaction = reaction;
 		}
-	}).implementStatic({
-		fromJSON: function(json){
-			var obj = JSON.parse(json);
-			if (Array.isArray(obj)){
-				return obj.map(this.fromObject, this);
-			}
-			else {
-				return this.fromObject(obj);
-			}
-		},
-		fromObject: function(obj){
-			var reaction = new Reaction();
-			reaction.forwardRate = new Rate(obj.forwardRate);
-			reaction.backwardRate = new Rate(obj.backwardRate);
-			reaction.educts = obj.educts.map(function(educt){
-				return ChemicalInstance.parse(educt, {reaction: reaction, isEduct: true});
-			});
-			reaction.products = obj.products.map(function(product){
-				return ChemicalInstance.parse(product, {reaction: reaction, isEduct: false});
-			});
-			obj.chainedReactions.forEach(function(child){
-				reaction.chain(Reaction.fromObject(child));
-			});
-			return reaction;
-		},
-		create: function(educts, reactionType, products){
-			var reaction = new this();
-			reaction.educts = this.parseChemicalList(educts, {reaction: reaction, isEduct: true});
-			
-			var reactionMatch = reactionType.match(/^\s*(<?)\s*(?:\[([^\]]*)\])?\s*([=\-])\s*(?:\[([^\]]*)\])?\s*(>?)\s*$/);
-			if (reactionMatch){
-				switch (reactionMatch[1] + reactionMatch[3] + reactionMatch[5]){
-					case "->":
-						reaction.forwardRate = new Rate(reactionMatch[4] || 1);
-						break;
-					case "<-":
-						reaction.backwardRate = new Rate(reactionMatch[2] || 1);
-						break;
-					case "<=>":
-					case "<->":
-						reaction.forwardRate = new Rate(reactionMatch[4] || 1);
-						reaction.backwardRate = new Rate(reactionMatch[2] || 1);
-						break;
-					default:
-						throw new SyntaxError("Unknown reaction type.");
-				}
-			}
-			else {
-				throw new SyntaxError("Invalid reaction type.");
-			}
-			reaction.products =this.parseChemicalList(products, {reaction: reaction, isEduct: false});
-			
-			if (arguments.length > 3){
-				var newArgs = Array.prototype.slice.call(arguments, 3);
-				newArgs.splice(0, 0, []);
-				reaction.chain(this.create.apply(this, newArgs));
-			}
-			
-			return reaction;
-		},
-		parseChemicalList: function(str, reactionOptions){
-			if (!Array.isArray(str)){
-				str = str.split("+");
-			}
-			return str.map(function(c){
-				if (c.match(/<|>/)){
-					throw new SyntaxError("Invalid chemical list syntax.");
-				}
-				else {
-					return ChemicalInstance.parse(c, reactionOptions);
-				}
-			});
-		},
-		parse: function(str){
-			var splitRegExp = /^(.*?)\s*(<\s*(?:\[[^\]]*\])?\s*[=-]\s*(?:\[[^\]]*\])?\s*>|<\s*(?:\[[^\]]*\])?\s*-|-\s*(?:\[[^\]]*\])?\s*>)\s*(.*)$/;
-			var match = str.match(splitRegExp);
-			if (match){
-				var args = [match[1], match[2], match[3]];
-				while ((match = match[3].match(splitRegExp)) !== null){
-					args.splice(2, 1, match[1], match[2], match[3]);
-				}
-				return this.create.apply(this, args);
-			}
-			else {
-				throw new SyntaxError("Invalid reaction syntax.");
-			}
-		},
-		
-		alignedOutput: function(reactions){
-			var columnCount = reactions.reduce(function(max, reaction){
-				return Math.max(max, reaction.getColumnCount());
-			}, 0);
-			var columnWidths = [];
-			for (var i = 0; i < columnCount; i += 1){
-				columnWidths[i] = reactions.reduce(function(max, reaction){
-					return Math.max(max, reaction.getColumn(i).length);
-				}, 1);
-			}
-			return reactions.map(function(reaction){
-				return columnWidths.map(function(width, columnIndex){
-					return reaction.getColumn(columnIndex, width);
-				}).join("").trim();
-			}).join("\n");
-		},
-		
-		alignedLatexOutput: function(reactions, columnCallback){
-			var columnCount = reactions.reduce(function(max, reaction){
-				return Math.max(max, reaction.getLatexColumnCount());
-			}, 0);
-			var columnWidths = [];
-			for (var i = 0; i < columnCount; i += 1){
-				columnWidths[i] = reactions.reduce(function(max, reaction){
-					return Math.max(max, reaction.getLatexColumn(i).length);
-				}, 1);
-			}
-			return reactions.map(function(reaction){
-				return columnWidths.map(function(width, columnIndex){
-					var col = reaction.getLatexColumn(columnIndex, width);
-					if (columnCallback){
-						col = columnCallback(col, columnIndex);
-					}
-					return col;
-				}).join("").trim();
-			}).join("\n");
-		},
 	});
 }());

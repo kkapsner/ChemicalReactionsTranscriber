@@ -7,13 +7,11 @@ var Rate = (function(){
 			this.name = name;
 			this.subscript = name.replace(/^[^_]+_?/, "");
 		}
-		else {
-			this.name = "";
-			this.matlabName = "";
-			this.subscript = "";
-		}
 	}).implement({
 		name: "",
+		matlabName: "",
+		subscript: "",
+		
 		toString: function(){
 			return this.name;
 		},
@@ -28,17 +26,19 @@ var Rate = (function(){
 				return this.name;
 			}
 		},
-		getLatexFactor: function(){
-			if (this.name !== 1){
-				return this.toLatex();
-			}
-			else {
-				return "";
-			}
+		toMatlab: function(){
+			return this.matlabName;
 		},
-		getMatlabFactor: function(){
-			if (this.name !== 1 && this.matlabName){
-				return this.matlabName + " * ";
+		getFactor: function(outputType){
+			if (this.name){
+				switch (outputType){
+					case "latex":
+						return this.toLatex();
+					case "matlab":
+						return this.toMatlab() + " * ";
+					default:
+						return this.toString() + " * ";
+				}
 			}
 			else {
 				return "";

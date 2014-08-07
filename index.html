@@ -28,13 +28,17 @@ textarea {
 <body>
 <textarea id="reactions"></textarea>
 <div id="actions">
+Output: 
 <select id="outputType">
 	<option value="JSON">JSON</option>
 	<option value="reactions">Reactions</option>
-	<option value="latex.reactions">LaTeX Reactions</option>
-	<option value="latex.total.concentrations">LaTeX total concentrations</option>
-	<option value="latex.dgl">LaTeX DGL</option>
-	<option value="matlab.dgl">MATLAB DGL</option>
+	<option value="total.concentrations">total concentrations</option>
+	<option value="dgl">DGL</option>
+</select>
+<select id="outputLanguage">
+	<option value=""></option>
+	<option value="latex">LaTeX</option>
+	<option value="matlab">MATLAB</option>
 </select>
 <button id="arrowAdjustments">-&gt;[ ... ] to -[ ... ]&gt; </button>
 |
@@ -48,13 +52,14 @@ replace <input id="match"> by <input id="replace"> <button id="doReplace">-&gt;<
 <script type="text/javascript">
 
 function parse(){
-	Chemical.clear();
 	var hasError = false;
-	var reactions = kkjs.$("reactions").value.split(/\n\r?|\r/g).filter(function(line){
+	var reactions = new ReactionPool();
+	console.log(reactions);
+	kkjs.$("reactions").value.split(/\n\r?|\r/g).filter(function(line){
 		return !!line.trim();
-	}).map(function(line){
+	}).forEach(function(line){
 		try {
-			return Reaction.parse(line);
+			return reactions.parse(line);
 		}
 		catch (e){
 			hasError = true;
@@ -71,7 +76,7 @@ function process(){
 	var parsing = parse();
 	
 	if (parsing.error){
-		out.value = parsing.reactions.join("\n");
+		out.value = parsing.reactions.getAll().join("\n");
 		return;
 	}
 	switch (kkjs.$("outputType").value){
@@ -79,38 +84,71 @@ function process(){
 			out.value = JSON.stringify(parsing.reactions, null, "\t");
 			break;
 		case "reactions":
-			out.value = Reaction.alignedOutput(parsing.reactions);
+			switch (kkjs.$("outputLanguage").value){
+				case "latex":
+					out.value = parsing.reactions.alignedLatexOutput();
+					break;
+				case "matlab":
+					out.value = "not implemented";
+				default:
+					out.value = parsing.reactions.alignedOutput();
+			}
 			break;
-		case "latex.reactions":
-			out.value = Reaction.alignedLatexOutput(parsing.reactions);
+		case "dgl":
+			switch (kkjs.$("outputLanguage").value){
+				case "latex":
+					out.value = parsing.reactions.chemicals.getAllNames().sort().map(function(name){
+						return "\\begin{split}\n" + parsing.reactions.chemicals.get(name).getDGL("latex") + "\n\\end{split} \\\\";
+					}).join("\n%\n");
+					break;
+				case "matlab":
+					out.value = parsing.reactions.chemicals.getAllNames().sort().map(function(name){
+						return parsing.reactions.chemicals.get(name).getDGL("matlab");
+					}).join("\n\n");
+					break;
+				default:
+					out.value = parsing.reactions.chemicals.getAllNames().sort().map(function(name){
+						return parsing.reactions.chemicals.get(name).getDGL();
+					}).join("\n");
+			}
 			break;
-		case "latex.dgl":
-			out.value = Object.keys(Chemical.all).sort().map(function(name){
-				return "\\begin{split}\n" + Chemical.all[name].getLatexDGL() + "\\end{split} \\\\";
-			}).join("\n%\n");
-			break;
-		case "latex.total.concentrations":
-			out.value = Object.keys(Chemical.all).filter(function(name){
-				return !name.match(/\./);
-			}).sort().map(function(name){
-				var nameRegExp = new RegExp(name + "\\.|\\." + name);
-				return "\\conc{" + name + "^{tot}} = &\n\t" + Object.keys(Chemical.all).filter(function(containName){
-					return name === containName || !!containName.match(nameRegExp);
-				}).map(function(name){
-					return Chemical.all[name].toLatex(true);
-				}).join("\n\t+ ");
-			}).join(" \\\\\n");
-			break;
-		case "matlab.dgl":
-			out.value = Object.keys(Chemical.all).sort().map(function(name){
-				return Chemical.all[name].getMatlabDGL();
-			}).join("\n\n");
+		case "total.concentrations":
+			switch (kkjs.$("outputLanguage").value){
+				case "latex":
+					out.value = parsing.reactions.chemicals.getAllNames().filter(function(name){
+						return !name.match(/\./);
+					}).sort().map(function(name){
+						var nameRegExp = new RegExp(name + "\\.|\\." + name);
+						return "\\conc{" + name + "^{tot}} = &\n\t" + parsing.reactions.chemicals.getAllNames().filter(function(containName){
+							return name === containName || !!containName.match(nameRegExp);
+						}).map(function(name){
+							return parsing.reactions.chemicals.get(name).toLatex(true);
+						}).join("\n\t+ ");
+					}).join(" \\\\\n");
+					break;
+				case "matlab":
+					out.value = parsing.reactions.chemicals.getAllNames().filter(function(name){
+						return !name.match(/\./);
+					}).sort().map(function(name){
+						var nameRegExp = new RegExp(name + "\\.|\\." + name);
+						return parsing.reactions.chemicals.get(name).matlabName + "_tot = ...\n\t" +
+							parsing.reactions.chemicals.getAllNames().filter(function(containName){
+								return name === containName || !!containName.match(nameRegExp);
+							}).map(function(name){
+								return parsing.reactions.chemicals.get(name).matlabName;
+							}).join("... \n\t+ ");
+					}).join(";\n") + ";";
+					break;
+				default:
+					out.value = "not implemented";
+			}
 			break;
 		default:
 			out.value = "not implemented...";
 	}
 };
-kkjs.event.add([kkjs.$("reactions"), kkjs.$("outputType")], ["input", "change", "advancedChange"], process);
+kkjs.event.add([kkjs.$("reactions")], "advancedChange", process);
+kkjs.event.add([kkjs.$("outputType"), kkjs.$("outputLanguage")], "change", process);
 
 kkjs.event.add(kkjs.$("arrowAdjustments"), "click", function(){
 	kkjs.$("reactions").value = kkjs.$("reactions").value
@@ -133,7 +171,7 @@ kkjs.event.add(kkjs.$("doReplace"), "click", function(){
 kkjs.event.add(kkjs.$("formatInput"), "click", function(){
 	var parsing = parse();
 	if (!parsing.error){
-		kkjs.$("reactions").value = Reaction.alignedOutput(parsing.reactions);
+		kkjs.$("reactions").value = parsing.reactions.alignedOutput();
 	}
 });
 process();

@@ -1,14 +1,6 @@
-var Chemical = kkjs.oo.Base.extend(function(name){
-	name = name.trim();
-	if (Chemical.all.hasOwnProperty(name)){
-		return Chemical.all[name];
-	}
-	else {
-		this.name = name;
-		this.matlabName = "m" + name.replace(/[^a-z0-9]/ig, "_");
-		this.instances = [];
-		Chemical.all[name] = this;
-	}
+var Chemical = Poolable.extend(function(name){
+	this.name = name;
+	this.instances = [];
 }).implement({
 	toLatex: function(outsideReaction){
 		if (!outsideReaction){
@@ -18,114 +10,76 @@ var Chemical = kkjs.oo.Base.extend(function(name){
 			return "\\conc{" + this.toString() + "}";
 		}
 	},
-	getDGL: function(){
-		var str = "d" + this + " = ";
-		str += this.instances.map(function(instance){
-			var str = "";
-			if (instance.reaction.forwardRate){
-				str += instance.isEduct? " - ": " + ";
-				if (instance.count > 1){
-					str += instance.count + " * ";
-				}
-				if (instance.reaction.forwardRate !== 1){
-					str += instance.reaction.forwardRate + " * ";
-				}
-				str += instance.reaction.educts.map(function(educt){
-					return educt.getDGLFactor();
-				}).join(" * ")
-			}
-			if (instance.reaction.backwardRate){
-				str += instance.isEduct? " + ": " - ";
-				if (instance.count > 1){
-					str += instance.count + " * ";
-				}
-				if (instance.reaction.backwardRate !== 1){
-					str += instance.reaction.backwardRate + " * ";
-				}
-				str += instance.reaction.products.map(function(product){
-					return product.getDGLFactor();
-				}).join(" * ")
-			}
-			return str;
-		}).join("");
-		
-		return str;
+	toMatlab: function(){
+		return this.matlabName;
 	},
-	getMatlabDGL: function(){
-		var str = "d" + this.matlabName + " = ...\n\t";
-		str += this.instances.map(function(instance){
-			var str = "";
-			if (instance.reaction.forwardRate){
-				str += instance.isEduct? " - ": " + ";
-				if (instance.count > 1){
-					str += instance.count + " * ";
-				}
-				if (instance.reaction.forwardRate !== 1){
-					str += instance.reaction.forwardRate.matlabName + " * ";
-				}
-				str += instance.reaction.educts.map(function(educt){
-					return educt.getMatlabDGLFactor();
-				}).join(" * ")
-			}
-			if (instance.reaction.backwardRate){
-				str += instance.isEduct? " + ": " - ";
-				if (instance.count > 1){
-					str += instance.count + " * ";
-				}
-				if (instance.reaction.backwardRate !== 1){
-					str += instance.reaction.backwardRate.matlabName + " * ";
-				}
-				str += instance.reaction.products.map(function(product){
-					return product.getMatlabDGLFactor();
-				}).join(" * ")
-			}
-			return str;
-		}).join(" ...\n\t");
+	getDGL: function(outputType){
+		var diff, eq, multiplication, indent, newLine, end;
+		switch (outputType){
+			case "latex":
+				diff = "\\frac{d" + this.toLatex(true) + "}{dt}";
+				eq = " = &";
+				multiplication = "";
+				indent = "\t";
+				newLine = "\n";
+				end = "";
+				break;
+			case "matlab":
+				diff = "d" + this.matlabName;
+				eq = " = ";
+				multiplication = " * ";
+				indent = "\t";
+				newLine = " ...\n";
+				end = ";";
+				break;
+			default:
+				diff = "d" + this.toString();
+				eq = " = ";
+				multiplication = " * ";
+				indent = "";
+				newLine = "";
+				end = "";
+		}
 		
-		return str + ";";
-	},
-	getLatexDGL: function(){
-		var str = "\\frac{d" + this.toLatex(true) + "}{dt} = \n";
-		str += this.instances.map(function(instance){
-			var str = "";
-			if (instance.reaction.forwardRate){
-				str += "\t" + (instance.isEduct? "- ": "+ ");
-				if (instance.count > 1){
-					str += instance.count + " \\cdot ";
-				}
-				if (instance.reaction.forwardRate !== 1){
-					str += instance.reaction.forwardRate.toLatex();
-				}
-				str += instance.reaction.educts.map(function(educt){
-					return educt.getLatexDGLFactor();
-				}).join("") + "\n";
+		function process(sign, instance, rate, chemicalInstances){
+			var str = indent + sign + instance.getFactor(outputType);
+			if (rate.name){
+				str += rate.getFactor(outputType);
 			}
-			if (instance.reaction.backwardRate){
-				str += "\t" + (instance.isEduct? "+ ": "- ");
-				if (instance.count > 1){
-					str += instance.count + " \\cdot ";
-				}
-				if (instance.reaction.backwardRate !== 1){
-					str += instance.reaction.backwardRate.toLatex();
-				}
-				str += instance.reaction.products.map(function(product){
-					return product.getLatexDGLFactor();
-				}).join("") + "\n";
-			}
+			str += chemicalInstances.map(function(instance){
+				return instance.getDGLFactor(outputType);
+			}).join(multiplication);
+			
 			return str;
-		}).join("");
+		}
+		function processReaction(reaction, isEduct, instance){
+			var str = "";
+			if (reaction.forwardRate){
+				str += process(isEduct? " - ": " + ", instance, reaction.forwardRate, reaction.educts);
+			}
+			if (reaction.backwardRate){
+				if (reaction.forwardRate){
+					str += newLine;
+				}
+				str += process(isEduct? " + ": " - ", instance, reaction.backwardRate, reaction.products);
+			}
+			if (!isEduct && reaction.chainedReaction){
+				str += newLine + processReaction(reaction.chainedReaction, !isEduct, instance);
+			};
+			
+			return str;
+		}
+		var str = diff + eq + newLine;
+		str += this.instances.map(function(instance){
+			return processReaction(instance.reaction, instance.isEduct, instance);
+		}).join(newLine);
 		
-		return str;
+		return str + end;
 	},
 	toString: function(){
 		return this.name;
 	},
 	toJSON: function(){
 		return this.toString();
-	}
-}).implementStatic({
-	all: {},
-	clear: function(){
-		this.all= {};
 	}
 });
