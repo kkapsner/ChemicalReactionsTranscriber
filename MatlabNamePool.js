@@ -25,7 +25,7 @@ var MatlabNamePool = (function(){
 		nameToMatlab: function(name){
 			var matlabName = name.toString().replace(/[^a-z0-9]/ig, function(m){
 				return matlabReplaces[m] || "_";
-			});
+			}).replace(/_{2,}/g, "_");
 			
 			if (!matlabName.match(/^[a-z0-9]/i)){
 				matlabName = this.prefix + matlabName;
